@@ -8,7 +8,15 @@
  * when that drum channel plays its kit sample.
  */
 
+import { normalizeSampleResponse } from "./sample-response.js";
+
 export const SONG_VERSION = 2;
+
+export function channelSampler(song, ch) {
+  const table = song?.channelSampler;
+  if (!table || typeof table !== "object") return normalizeSampleResponse(null);
+  return normalizeSampleResponse(table[ch] ?? table[String(ch)]);
+}
 
 export function defaultChannelFx() {
   return {
@@ -154,6 +162,12 @@ export function migrateSong(song, catalog) {
 
   for (const key of Object.keys(song.channelFx)) {
     song.channelFx[key] = normalizeChannelFx(song.channelFx[key]);
+  }
+  if (!song.channelSampler || typeof song.channelSampler !== "object" || Array.isArray(song.channelSampler)) {
+    song.channelSampler = {};
+  }
+  for (let ch = 0; ch < 8; ch++) {
+    song.channelSampler[ch] = normalizeSampleResponse(song.channelSampler[ch] ?? song.channelSampler[String(ch)]);
   }
   return song;
 }

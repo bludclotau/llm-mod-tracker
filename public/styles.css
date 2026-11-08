@@ -157,7 +157,26 @@ select, .compose button {
   font: inherit;
   padding: 2px 4px;
 }
-#fx-channel { color: var(--inst); font-size: 11px; letter-spacing: 0.06em; }
+#fx-channel, #sam-channel { color: var(--inst); font-size: 11px; letter-spacing: 0.06em; }
+.sampler-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 8px 16px;
+  background: #10140c;
+  border-bottom: 1px solid var(--line);
+}
+.sampler-strip label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--dim);
+  font-size: 11px;
+}
+.sampler-strip input[type="range"] { width: 72px; accent-color: var(--inst); }
+.sampler-strip input:disabled { opacity: 0.35; }
+#sam-hint { color: var(--dim); font-size: 11px; }
 .cell .fx { color: var(--warn); }
 
 .stage {

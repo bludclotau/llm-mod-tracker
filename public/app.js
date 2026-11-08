@@ -5,11 +5,13 @@ import { resolveSound } from "./audio/layer.js";
 import {
   SONG_VERSION,
   applyCellFx,
+  channelSampler,
   defaultChannelFx,
   migrateSong,
   normalizeChannelFx,
   resolveCatalogSample,
 } from "./audio/instruments.js";
+import { normalizeSampleResponse } from "./audio/sample-response.js";
 import { ChannelStrip, createMasterChain } from "./audio/dsp-strip.js";
 
 /* MOD Tracker LLM — pattern editor + Web Audio player + Dolphin compose. */
@@ -220,6 +222,7 @@ import { ChannelStrip, createMasterChain } from "./audio/dsp-strip.js";
     const midi = midiOf(cell.note) ?? (role === "bass" ? 24 : 60);
     voice.buffer = buf;
     voice.pan = (ch - 3.5) / 8;
+    voice.response = channelSampler(state.song, ch);
     voice.noteOn(when, midi, (cell.volume || 64) / 64);
   }
 
@@ -353,9 +356,11 @@ import { ChannelStrip, createMasterChain } from "./audio/dsp-strip.js";
     await ensureAudio();
     const buf = await decodeSample(sample);
     const voice = state.voices[7];
+    const responseCh = state.ch < 8 ? state.ch : 7;
     voice.cut(state.ctx.currentTime);
     voice.buffer = buf;
     voice.pan = null;
+    voice.response = channelSampler(state.song, responseCh);
     voice.noteOn(state.ctx.currentTime, 60, 0.9);
   }
 
@@ -1277,6 +1282,7 @@ import { ChannelStrip, createMasterChain } from "./audio/dsp-strip.js";
     if (effect) effect.value = String(cell?.effect || 0);
     if (param) param.value = String(cell?.param || 0);
     state.fxSync = false;
+    paintSampler();
   }
 
   function writeStripParam(key, value) {
@@ -1332,6 +1338,65 @@ import { ChannelStrip, createMasterChain } from "./audio/dsp-strip.js";
     paintStrip();
   }
 
+  const SAMPLER_FIELDS = [
+    ["sam-level", "level"],
+    ["sam-start", "start"],
+    ["sam-end", "end"],
+    ["sam-hold", "envShape"],
+    ["sam-amp", "velAmp"],
+    ["sam-tone", "velTone"],
+    ["sam-vstart", "velStart"],
+    ["sam-attack", "velAttack"],
+    ["sam-decay", "velDecay"],
+  ];
+
+  function paintSampler() {
+    const label = $("sam-channel");
+    if (!label || !state.song) return;
+    const ch = state.ch;
+    const drum = ch < 8;
+    label.textContent = drum ? `CH${ch + 1}` : "LAYER";
+    const response = drum ? channelSampler(state.song, ch) : normalizeSampleResponse(null);
+    state.samSync = true;
+    for (const [id, key] of SAMPLER_FIELDS) {
+      const el = $(id);
+      if (!el) continue;
+      el.value = String(response[key]);
+      el.disabled = !drum;
+    }
+    const hint = $("sam-hint");
+    if (hint) {
+      hint.textContent = !drum
+        ? "sample response is per drum channel"
+        : channelFmId(ch)
+          ? "stored for this channel · playback is FM"
+          : "GCD-8 velocity response";
+    }
+    state.samSync = false;
+  }
+
+  function writeSampler(key, value) {
+    if (!state.song || state.ch >= 8) return;
+    const ch = state.ch;
+    state.song.channelSampler ||= {};
+    const next = normalizeSampleResponse({ ...channelSampler(state.song, ch), [key]: Number(value) });
+    state.song.channelSampler[ch] = next;
+    if (state.voices?.[ch]) state.voices[ch].response = next;
+  }
+
+  function setupSampler() {
+    for (const [id, key] of SAMPLER_FIELDS) {
+      const el = $(id);
+      if (!el) continue;
+      el.addEventListener("input", () => {
+        if (state.samSync) return;
+        writeSampler(key, el.value);
+      });
+      el.addEventListener("change", () => el.blur());
+    }
+    paintSampler();
+  }
+
   function refreshDelayTimes() {
     if (!state.ctx || !state.strips) return;
     const t = state.ctx.currentTime;
@@ -1347,6 +1412,7 @@ import { ChannelStrip, createMasterChain } from "./audio/dsp-strip.js";
     setupFmPanel();
     setupChannelInstrument();
     setupStrip();
+    setupSampler();
     $("btn-play").addEventListener("click", play);
     $("btn-stop").addEventListener("click", stop);
     $("btn-compose").addEventListener("click", () => compose(false));

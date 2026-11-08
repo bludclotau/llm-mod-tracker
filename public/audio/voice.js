@@ -1,3 +1,5 @@
+import { isPlainResponse, shapeSampleHit } from "./sample-response.js";
+
 /**
  * Channel voices for the tracker.
  *
@@ -7,8 +9,9 @@
  *   noteOn(time, note, velocity)
  *     Start a note at an AudioContext time. `note` is a MIDI note number.
  *     `velocity` is linear gain, where 1 matches cell volume 64.
- *     SampleVoice uses `voice.buffer` and `voice.pan`, which the engine sets
- *     before the call. `pan === null` skips the panner (sample audition).
+ *     SampleVoice uses `voice.buffer`, `voice.pan`, and `voice.response`,
+ *     which the engine sets before the call. `pan === null` skips the
+ *     panner (sample audition). A plain response plays the buffer as before.
  *
  *   noteOff(time)
  *     Envelope release at `time`. This does not hard-stop the voice.
@@ -52,6 +55,8 @@ export class SampleVoice {
     this.buffer = null;
     /** @type {number|null} null means connect with no StereoPanner */
     this.pan = 0;
+    /** GCD-8 per-channel sampler. Null is the unchanged drum hit. */
+    this.response = null;
     this.current = null;
   }
 
@@ -60,10 +65,26 @@ export class SampleVoice {
     const src = this.ctx.createBufferSource();
     src.buffer = this.buffer;
     const midi = Number(note);
-    src.playbackRate.value = 2 ** ((midi - 60) / 12);
+    const rate = 2 ** ((midi - 60) / 12);
+    src.playbackRate.value = rate;
+    const plain = isPlainResponse(this.response);
+    const shaped = plain ? null : shapeSampleHit(this.response, velocity, this.buffer.duration, rate);
+    if (shaped && shaped.bufferPlay <= 0) return;
     const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(Number(velocity), time);
-    src.connect(gain);
+    const level = plain ? Number(velocity) : shaped.gain;
+    if (!plain && shaped.useEnvelope) scheduleEnvelope(gain.gain, time, shaped);
+    else gain.gain.setValueAtTime(level, time);
+    let head = src;
+    let filter = null;
+    if (shaped?.useFilter) {
+      filter = this.ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.Q.value = 0.707;
+      filter.frequency.setValueAtTime(Math.min(shaped.cutoff, this.ctx.sampleRate * 0.45), time);
+      src.connect(filter);
+      head = filter;
+    }
+    head.connect(gain);
     let tail = gain;
     let panner = null;
     if (this.pan != null) {
@@ -73,11 +94,14 @@ export class SampleVoice {
       tail = panner;
     }
     tail.connect(this.destination);
-    src.start(time);
-    const token = { src, gain, panner };
+    if (plain) src.start(time);
+    else src.start(time, shaped.offsetSec, shaped.bufferPlay);
+    if (shaped?.useEnvelope && shaped.envelopeLen > 0) src.stop(time + shaped.envelopeLen);
+    const token = { src, gain, panner, filter };
     this.current = token;
     src.onended = () => {
       if (this.current === token) this.current = null;
+      disconnectQuiet(filter, gain, panner);
     };
   }
 
@@ -99,6 +123,34 @@ export class SampleVoice {
     } catch {
       /* already stopped */
     }
+  }
+}
+
+function scheduleEnvelope(param, time, shaped) {
+  const total = shaped.attack + shaped.hold + shaped.decay;
+  const peak = shaped.gain;
+  if (!(total > 0.001)) {
+    param.setValueAtTime(peak, time);
+    return;
+  }
+  const n = Math.max(2, Math.min(256, Math.ceil(total * 200)));
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const at = (i / (n - 1)) * total;
+    let env = 1;
+    if (at < shaped.attack) env = shaped.attack > 0 ? at / shaped.attack : 1;
+    else if (at > shaped.attack + shaped.hold) {
+      const u = shaped.decay > 0 ? (at - shaped.attack - shaped.hold) / shaped.decay : 1;
+      env = Math.max(0, 1 - u);
+    }
+    curve[i] = peak * env * env;
+  }
+  param.setValueCurveAtTime(curve, time, total);
+}
+
+function disconnectQuiet(...nodes) {
+  for (const node of nodes) {
+    try { node?.disconnect(); } catch { /* already disconnected */ }
   }
 }
 

@@ -82,6 +82,7 @@ assert(song.channelFx[8].resonance === 1.2, "layer resonance kept");
 assert(song.channelFx[8].drive === 0 && song.channelFx[8].fxWet === 0, "explicit zeros kept");
 assert(song.channelFx[8].delayTime === defaultChannelFx().delayTime, "missing delay time filled");
 assert(song.channelFx[8].filterType === "lowpass", "missing filter type filled");
+assert(song.channelSampler[0].level === 1 && song.channelSampler[0].velAmp === 0 && song.channelSampler[0].end === 1, "old songs get a plain GCD-8 sampler");
 
 migrateSong(song, catalog);
 assert(song.instruments.filter((item) => item.type === "sample").length === 3, "second migrate does not duplicate");

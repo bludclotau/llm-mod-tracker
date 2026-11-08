@@ -191,7 +191,35 @@ up to one lookahead early. `noteOn` and `noteOff` use the row time itself.
 `SampleVoice` is the drum implementation of this interface. Pattern effect
 commands automate the channel strip after the voice. They do not change
 `SampleVoice`. Existing songs have no `===` cells and no effect commands, so
-drum playback is unchanged.
+drum playback is unchanged until a GCD-8 sampler slider moves.
+
+## GCD-8 sampler
+
+Each drum channel has the sample response from `gcd8-pd` (`gcd8.sampler~`).
+The sliders are under **GCD-8 SAMPLER** and follow the selected channel.
+They are stored on `song.channelSampler` and round-trip through **SAVE** /
+**LOAD**. A song with no `channelSampler` loads the identity settings, so
+the hit is the same buffer playback as before.
+
+Cell volume is the velocity. `1` is volume 64. Full velocity is never
+darkened, shortened, or faded by the depth sliders. Softer hits are.
+
+| slider | 0 | 1 |
+|--------|---|---|
+| LEVEL | silence | unity, before the velocity curve |
+| START / END | play from the start / through the end | trim the buffer |
+| HOLD | AD envelope (no hold) | 95% hold, then a fade |
+| AMP | linear volume, as before | velocity squared |
+| TONE | no extra lowpass | 24 kHz at full velocity, 600 Hz at velocity 0 |
+| V.START | start trim only | soft hits skip toward the end trim |
+| ATTACK | no fade-in | 150 ms fade-in at velocity 0, capped at half the envelope |
+| DECAY | full trimmed length | velocity 0 lasts 15% of that length |
+
+HOLD, ATTACK, and DECAY build one AHD envelope. The fade is squared, matching
+the Pure Data `vline~` multiplied by itself. TONE is a lowpass on that hit
+only. The channel strip filter is still downstream and is unchanged.
+Clicking a sample auditions it through the bass voice with the selected drum
+channel's response. `node scripts/verify-sample-response.mjs` checks the curves.
 
 ## FM voice
 

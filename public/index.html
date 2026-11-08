@@ -79,6 +79,21 @@
       <label>PRM <input id="cell-param" type="number" min="0" max="255" step="1" value="0" /></label>
     </section>
 
+    <section class="sampler-strip" id="sampler-strip">
+      <span class="prompt-label">GCD-8 SAMPLER</span>
+      <span id="sam-channel">CH1</span>
+      <label>LEVEL <input id="sam-level" type="range" min="0" max="1" step="0.01" value="1" /></label>
+      <label>START <input id="sam-start" type="range" min="0" max="1" step="0.01" value="0" /></label>
+      <label>END <input id="sam-end" type="range" min="0" max="1" step="0.01" value="1" /></label>
+      <label>HOLD <input id="sam-hold" type="range" min="0" max="1" step="0.01" value="1" /></label>
+      <label>AMP <input id="sam-amp" type="range" min="0" max="1" step="0.01" value="0" /></label>
+      <label>TONE <input id="sam-tone" type="range" min="0" max="1" step="0.01" value="0" /></label>
+      <label>V.START <input id="sam-vstart" type="range" min="0" max="1" step="0.01" value="0" /></label>
+      <label>ATTACK <input id="sam-attack" type="range" min="0" max="1" step="0.01" value="0" /></label>
+      <label>DECAY <input id="sam-decay" type="range" min="0" max="1" step="0.01" value="0" /></label>
+      <span id="sam-hint">GCD-8 velocity response</span>
+    </section>
+
     <main class="stage">
       <aside class="samples">
         <h2>SAMPLES <span id="sample-count"></span></h2>
@@ -119,6 +134,7 @@
       <span>LAYER adds an FM channel</span>
       <span>CH INST assigns FM to the selected drum channel</span>
       <span>FX / PRM automates the channel strip</span>
+      <span>GCD-8 sampler shapes the selected drum channel</span>
       <span>SAVE / LOAD project</span>
     </footer>
   </div>
