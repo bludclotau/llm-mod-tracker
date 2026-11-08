@@ -91,7 +91,33 @@
       <label>V.START <input id="sam-vstart" type="range" min="0" max="1" step="0.01" value="0" /></label>
       <label>ATTACK <input id="sam-attack" type="range" min="0" max="1" step="0.01" value="0" /></label>
       <label>DECAY <input id="sam-decay" type="range" min="0" max="1" step="0.01" value="0" /></label>
+      <span class="sam-file">
+        <button type="button" id="sam-load" title="Load a WAV into the selected drum channel">LOAD</button>
+        <button type="button" id="sam-clear" title="Remove the loaded sample from the selected drum channel">CLEAR</button>
+        <button type="button" id="sam-stop" title="Stop the selected channel's sample">STOP</button>
+        <input id="sam-file" type="file" accept="audio/*,.wav,.aif,.aiff,.flac,.ogg,.mp3" hidden />
+      </span>
+      <span id="sam-name"></span>
       <span id="sam-hint">GCD-8 velocity response</span>
+    </section>
+
+    <section class="euclid-strip" id="euclid-strip">
+      <span class="prompt-label">GCD-8 EUCLID</span>
+      <span id="eu-channel">CH1</span>
+      <label>LEN <input id="eu-length" type="number" min="1" max="32" step="1" value="16" /></label>
+      <label>HITS <input id="eu-hits" type="number" min="0" max="32" step="1" value="4" /></label>
+      <label>SHIFT <input id="eu-shift" type="number" min="0" max="31" step="1" value="0" /></label>
+      <label>RATE
+        <select id="eu-rate" aria-label="Step rate">
+          <option value="1/16">1/16</option>
+          <option value="1/8">1/8</option>
+          <option value="1/4">1/4</option>
+          <option value="1/2">1/2</option>
+        </select>
+      </label>
+      <button type="button" id="eu-generate" title="Write the pattern onto this channel's rows">GENERATE</button>
+      <code id="eu-preview"></code>
+      <span id="eu-hint"></span>
     </section>
 
     <main class="stage">
@@ -135,6 +161,8 @@
       <span>CH INST assigns FM to the selected drum channel</span>
       <span>FX / PRM automates the channel strip</span>
       <span>GCD-8 sampler shapes the selected drum channel</span>
+      <span>LOAD puts your own WAV on the selected drum channel</span>
+      <span>GCD-8 EUCLID GENERATE rewrites the selected drum channel</span>
       <span>SAVE / LOAD project</span>
     </footer>
   </div>

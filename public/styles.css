@@ -177,6 +177,39 @@ select, .compose button {
 .sampler-strip input[type="range"] { width: 72px; accent-color: var(--inst); }
 .sampler-strip input:disabled { opacity: 0.35; }
 #sam-hint { color: var(--dim); font-size: 11px; }
+.sam-file { display: flex; gap: 6px; }
+.sam-file button, .euclid-strip button {
+  background: #1c2433; color: var(--text); border: 1px solid var(--line);
+  font: inherit; font-size: 11px; letter-spacing: 0.06em; padding: 3px 8px; cursor: pointer;
+}
+.sam-file button:hover, .euclid-strip button:hover { border-color: var(--accent); color: var(--accent); }
+.sam-file button:disabled, .euclid-strip button:disabled { opacity: 0.35; cursor: default; }
+#sam-name { color: var(--note); font-size: 11px; }
+.euclid-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 8px 16px;
+  background: #0c1214;
+  border-bottom: 1px solid var(--line);
+}
+.euclid-strip label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--dim);
+  font-size: 11px;
+}
+.euclid-strip input[type="number"], .euclid-strip select {
+  width: 54px; background: #0b0e14; color: var(--note); border: 1px solid var(--line);
+  font: inherit; padding: 3px 5px;
+}
+.euclid-strip select { width: 64px; }
+.euclid-strip input:disabled, .euclid-strip select:disabled { opacity: 0.35; }
+#eu-channel { color: var(--inst); font-size: 11px; letter-spacing: 0.06em; }
+#eu-preview { color: var(--note); font-size: 11px; letter-spacing: 0.08em; }
+#eu-hint { color: var(--dim); font-size: 11px; }
 .cell .fx { color: var(--warn); }
 
 .stage {

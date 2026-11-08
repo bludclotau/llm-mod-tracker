@@ -13,6 +13,16 @@ import {
 } from "./audio/instruments.js";
 import { normalizeSampleResponse } from "./audio/sample-response.js";
 import { ChannelStrip, createMasterChain } from "./audio/dsp-strip.js";
+import { channelEuclid, euclidRows, euclidString, normalizeEuclid, STEP_RATES } from "./audio/euclid.js";
+import {
+  MAX_USER_SAMPLE_BYTES,
+  arrayBufferToBase64,
+  countSampleRefs,
+  isUserSampleId,
+  mergeUserSamples,
+  nextUserSampleId,
+  userSampleName,
+} from "./audio/user-samples.js";
 
 /* MOD Tracker LLM — pattern editor + Web Audio player + Dolphin compose. */
 (() => {
@@ -67,6 +77,8 @@ import { ChannelStrip, createMasterChain } from "./audio/dsp-strip.js";
     fxBus: null,
     limiter: null,
     fxSync: false,
+    samSync: false,
+    euSync: false,
   };
 
   const FM_GLOBALS = [
@@ -367,6 +379,7 @@ import { ChannelStrip, createMasterChain } from "./audio/dsp-strip.js";
   function applySong(song) {
     disposeLayerVoices();
     disposeChannelFm();
+    syncUserSamples(song);
     migrateSong(song, state.samples);
     const width = song.patterns?.[0]?.data?.length || 8;
     if (state.ch >= width) state.ch = Math.max(0, width - 1);
@@ -1174,6 +1187,7 @@ import { ChannelStrip, createMasterChain } from "./audio/dsp-strip.js";
     }
     const data = song.patterns[0].data;
     if (data.length < 8) throw new Error("pattern is missing drum channels");
+    syncUserSamples(song);
     migrateSong(song, state.samples);
     song.rows = song.patterns[0].rows || data[0]?.length || 16;
     song.channels = data.length;
@@ -1283,6 +1297,7 @@ import { ChannelStrip, createMasterChain } from "./audio/dsp-strip.js";
     if (param) param.value = String(cell?.param || 0);
     state.fxSync = false;
     paintSampler();
+    paintEuclid();
   }
 
   function writeStripParam(key, value) {
@@ -1364,6 +1379,15 @@ import { ChannelStrip, createMasterChain } from "./audio/dsp-strip.js";
       el.value = String(response[key]);
       el.disabled = !drum;
     }
+    const user = drum ? channelUserSample(ch) : null;
+    const nameEl = $("sam-name");
+    if (nameEl) nameEl.textContent = user ? `${user.name} · #${user.id}` : "";
+    for (const id of ["sam-load", "sam-stop"]) {
+      const el = $(id);
+      if (el) el.disabled = !drum;
+    }
+    const clearBtn = $("sam-clear");
+    if (clearBtn) clearBtn.disabled = !drum || !user;
     const hint = $("sam-hint");
     if (hint) {
       hint.textContent = !drum
@@ -1384,7 +1408,261 @@ import { ChannelStrip, createMasterChain } from "./audio/dsp-strip.js";
     if (state.voices?.[ch]) state.voices[ch].response = next;
   }
 
+  // ---- user samples (gcd8.sampler~ LOAD / CLEAR / STOP) -------------------
+
+  /** Make state.samples match song.userSamples. Kit rows are untouched. */
+  function syncUserSamples(song) {
+    const had = state.samples.filter((s) => s.user).map((s) => s.id);
+    state.samples = mergeUserSamples(state.samples, song?.userSamples);
+    state.byId = new Map(state.samples.map((s) => [s.id, s]));
+    for (const id of had) if (!state.byId.has(id)) state.buffers.delete(id);
+    if (!state.byId.has(state.selectedSample)) state.selectedSample = 1;
+    if (document.getElementById("sample-list")) renderSamples();
+  }
+
+  /** Drop stored samples that no cell and no kit slot points at. */
+  function pruneUserSamples(song) {
+    const kit = new Set(Object.values(song.kit || {}).map(Number));
+    song.userSamples = (song.userSamples || []).filter(
+      (entry) => kit.has(Number(entry.id)) || countSampleRefs(song, entry.id) > 0,
+    );
+    syncUserSamples(song);
+  }
+
+  function channelUserSample(ch) {
+    const column = state.song?.patterns?.[0]?.data?.[ch] || [];
+    for (const cell of column) {
+      if (isUserSampleId(cell?.sample)) {
+        const entry = state.song.userSamples?.find((item) => Number(item.id) === Number(cell.sample));
+        if (entry) return entry;
+      }
+    }
+    return null;
+  }
+
+  function paintColumn(ch) {
+    const rows = state.song.patterns[0].rows;
+    for (let r = 0; r < rows; r++) paintCell(r, ch);
+  }
+
+  function status(text, kind) {
+    $("status").textContent = text;
+    $("status").className = kind ? `status ${kind}` : "status";
+  }
+
+  async function loadChannelSample(file) {
+    const ch = state.ch;
+    if (!state.song || ch >= 8 || !file) return;
+    if (file.size > MAX_USER_SAMPLE_BYTES) {
+      status(`${file.name} is over ${MAX_USER_SAMPLE_BYTES / 1048576} MB`, "err");
+      return;
+    }
+    try {
+      const ctx = await ensureAudio();
+      const bytes = await file.arrayBuffer();
+      const buf = await ctx.decodeAudioData(bytes.slice(0));
+      const song = state.song;
+      const role = ROLES[ch];
+      const column = song.patterns[0].data[ch];
+      const prior = column.find((cell) => cell?.sample && cell.note && cell.note !== NOTE_OFF);
+      let fallback = Number(song.kit?.[role]) || 0;
+      if (prior) {
+        const old = song.userSamples?.find((item) => Number(item.id) === Number(prior.sample));
+        fallback = old ? Number(old.fallback) || 0 : Number(prior.sample) || fallback;
+      }
+      const id = nextUserSampleId(state.samples, song.userSamples);
+      song.userSamples = [
+        ...(song.userSamples || []),
+        {
+          id,
+          name: userSampleName(file.name),
+          mime: file.type && file.type.startsWith("audio/") ? file.type : "audio/wav",
+          data: arrayBufferToBase64(bytes),
+          role,
+          fallback,
+        },
+      ];
+      syncUserSamples(song);
+      state.buffers.set(id, buf);
+      song.kit ||= {};
+      song.kit[role] = id;
+      let placed = 0;
+      for (const cell of column) {
+        if (cell?.note && cell.note !== NOTE_OFF) {
+          cell.sample = id;
+          placed += 1;
+        }
+      }
+      pruneUserSamples(song);
+      state.selectedSample = id;
+      paintColumn(ch);
+      highlightKit();
+      paintSampler();
+      status(
+        placed
+          ? `${userSampleName(file.name)} loaded on CH${ch + 1} · ${placed} hit${placed === 1 ? "" : "s"} now use it`
+          : `${userSampleName(file.name)} loaded · press a note key on CH${ch + 1}`,
+        "ok",
+      );
+      const entry = state.byId.get(id);
+      if (entry) preview(entry);
+    } catch (err) {
+      status(`could not load ${file.name}: ${err.message || err}`, "err");
+    }
+  }
+
+  /** Put the channel's kit sample back. A cell with no kit sample to return to goes silent. */
+  function clearChannelSample() {
+    const ch = state.ch;
+    const song = state.song;
+    if (!song || ch >= 8) return;
+    const role = ROLES[ch];
+    const column = song.patterns[0].data[ch];
+    const ids = new Set(column.filter((cell) => isUserSampleId(cell?.sample)).map((cell) => Number(cell.sample)));
+    if (isUserSampleId(song.kit?.[role])) ids.add(Number(song.kit[role]));
+    if (!ids.size) {
+      status(`CH${ch + 1} has no loaded sample`);
+      return;
+    }
+    state.voices?.[ch]?.cut(state.ctx?.currentTime ?? 0);
+    for (const id of ids) {
+      const entry = song.userSamples?.find((item) => Number(item.id) === id);
+      const fallback = Number(entry?.fallback) || 0;
+      for (const cell of column) {
+        if (Number(cell?.sample) !== id) continue;
+        if (fallback) cell.sample = fallback;
+        else {
+          cell.note = null;
+          cell.sample = 0;
+          cell.volume = 0;
+        }
+      }
+      if (Number(song.kit?.[role]) === id) {
+        if (fallback) song.kit[role] = fallback;
+        else delete song.kit[role];
+      }
+      if (state.selectedSample === id) state.selectedSample = fallback || 1;
+    }
+    pruneUserSamples(song);
+    paintColumn(ch);
+    highlightKit();
+    paintSampler();
+    status(`CH${ch + 1} back on the kit sample`, "ok");
+  }
+
+  function stopChannelSample() {
+    if (!state.ctx || !state.voices || state.ch >= 8) return;
+    const t = state.ctx.currentTime;
+    state.voices[state.ch].cut(t);
+    // A sample audition plays on the bass voice. Leave that voice alone while
+    // the pattern runs, because it is also CH8.
+    if (!state.playing) state.voices[7].cut(t);
+  }
+
+  // ---- euclidean sequencer (gcd8.seq base pattern) ------------------------
+
+  const EUCLID_FIELDS = [
+    ["eu-length", "length"],
+    ["eu-hits", "hits"],
+    ["eu-shift", "shift"],
+    ["eu-rate", "stepRate"],
+  ];
+
+  function paintEuclid() {
+    const label = $("eu-channel");
+    if (!label || !state.song) return;
+    const ch = state.ch;
+    const drum = ch < 8;
+    const cfg = drum ? channelEuclid(state.song, ch) : normalizeEuclid(null);
+    label.textContent = drum ? `CH${ch + 1}` : "LAYER";
+    state.euSync = true;
+    for (const [id, key] of EUCLID_FIELDS) {
+      const el = $(id);
+      if (!el) continue;
+      el.value = String(cfg[key]);
+      el.disabled = !drum;
+    }
+    $("eu-hits").max = String(cfg.length);
+    $("eu-shift").max = String(Math.max(0, cfg.length - 1));
+    $("eu-generate").disabled = !drum;
+    const rows = state.song.patterns[0].rows;
+    $("eu-preview").textContent = drum ? euclidString(cfg, rows) : "";
+    const stride = STEP_RATES[cfg.stepRate];
+    $("eu-hint").textContent = !drum
+      ? "euclid is per drum channel"
+      : channelFmId(ch)
+        ? "GENERATE rewrites this channel's notes · playback is FM"
+        : `${cfg.hits} of ${cfg.length} steps · ${stride} row${stride === 1 ? "" : "s"} per step`;
+    state.euSync = false;
+  }
+
+  function writeEuclid(key, value) {
+    if (!state.song || state.ch >= 8) return;
+    const ch = state.ch;
+    state.song.channelEuclid ||= {};
+    const raw = key === "stepRate" ? value : Number(value);
+    state.song.channelEuclid[ch] = normalizeEuclid({ ...channelEuclid(state.song, ch), [key]: raw });
+    paintEuclid();
+  }
+
+  /**
+   * Write the cycle onto this channel. Hit rows take the note, sample, and
+   * volume of the channel's first existing hit, else the role default. Other
+   * rows lose note, sample, and volume. effect and param stay, so FX automation
+   * survives a rewrite.
+   */
+  function generateEuclid() {
+    const song = state.song;
+    const ch = state.ch;
+    if (!song || ch >= 8) return;
+    const pat = song.patterns[0];
+    const column = pat.data[ch];
+    const role = ROLES[ch];
+    const hits = euclidRows(channelEuclid(song, ch), pat.rows);
+    const proto = column.find((cell) => cell?.note && cell.note !== NOTE_OFF);
+    const note = proto?.note || (role === "bass" ? "C-1" : "C-4");
+    const sample = proto?.sample || song.kit?.[role] || state.selectedSample || 1;
+    const volume = proto?.volume || (role === "hat" ? 40 : 64);
+    for (let r = 0; r < pat.rows; r++) {
+      const cell = column[r] || (column[r] = emptyCell());
+      if (hits[r]) {
+        cell.note = note;
+        cell.sample = sample;
+        cell.volume = volume;
+      } else {
+        cell.note = null;
+        cell.sample = 0;
+        cell.volume = 0;
+      }
+    }
+    pruneUserSamples(song);
+    paintColumn(ch);
+    const cfg = channelEuclid(song, ch);
+    status(`E(${cfg.hits},${cfg.length}) written to CH${ch + 1}`, "ok");
+  }
+
+  function setupEuclid() {
+    for (const [id, key] of EUCLID_FIELDS) {
+      const el = $(id);
+      if (!el) continue;
+      el.addEventListener("change", () => {
+        if (state.euSync) return;
+        writeEuclid(key, el.value);
+      });
+    }
+    $("eu-generate")?.addEventListener("click", generateEuclid);
+    paintEuclid();
+  }
+
   function setupSampler() {
+    $("sam-load")?.addEventListener("click", () => $("sam-file").click());
+    $("sam-file")?.addEventListener("change", () => {
+      const file = $("sam-file").files?.[0];
+      $("sam-file").value = "";
+      if (file) loadChannelSample(file);
+    });
+    $("sam-clear")?.addEventListener("click", clearChannelSample);
+    $("sam-stop")?.addEventListener("click", stopChannelSample);
     for (const [id, key] of SAMPLER_FIELDS) {
       const el = $(id);
       if (!el) continue;
@@ -1413,6 +1691,7 @@ import { ChannelStrip, createMasterChain } from "./audio/dsp-strip.js";
     setupChannelInstrument();
     setupStrip();
     setupSampler();
+    setupEuclid();
     $("btn-play").addEventListener("click", play);
     $("btn-stop").addEventListener("click", stop);
     $("btn-compose").addEventListener("click", () => compose(false));

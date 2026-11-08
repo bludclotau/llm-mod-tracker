@@ -9,6 +9,8 @@
  */
 
 import { normalizeSampleResponse } from "./sample-response.js";
+import { normalizeEuclid } from "./euclid.js";
+import { normalizeUserSamples } from "./user-samples.js";
 
 export const SONG_VERSION = 2;
 
@@ -163,6 +165,13 @@ export function migrateSong(song, catalog) {
   for (const key of Object.keys(song.channelFx)) {
     song.channelFx[key] = normalizeChannelFx(song.channelFx[key]);
   }
+  if (!song.channelEuclid || typeof song.channelEuclid !== "object" || Array.isArray(song.channelEuclid)) {
+    song.channelEuclid = {};
+  }
+  for (const key of Object.keys(song.channelEuclid)) {
+    song.channelEuclid[key] = normalizeEuclid(song.channelEuclid[key]);
+  }
+  song.userSamples = normalizeUserSamples(song.userSamples);
   if (!song.channelSampler || typeof song.channelSampler !== "object" || Array.isArray(song.channelSampler)) {
     song.channelSampler = {};
   }

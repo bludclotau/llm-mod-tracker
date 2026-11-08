@@ -221,6 +221,41 @@ only. The channel strip filter is still downstream and is unchanged.
 Clicking a sample auditions it through the bass voice with the selected drum
 channel's response. `node scripts/verify-sample-response.mjs` checks the curves.
 
+## Loading your own samples
+
+**LOAD**, **CLEAR**, and **STOP** sit on the GCD-8 sampler strip and act on the selected drum channel, like the buttons on `gcd8.sampler~`.
+
+- **LOAD** takes any file the browser can decode (WAV, AIFF, FLAC, OGG, MP3), up to 8 MB. It joins the sample list under an id of 1000 or more, becomes the channel's kit sample, and every hit already on that channel switches to it. It is also auditioned through the channel's sampler response. Rests, note-offs, and other channels are untouched.
+- **CLEAR** puts the channel back on the kit sample it used before the load. A hit with no kit sample to return to is emptied. A user sample that nothing uses any more is dropped.
+- **STOP** fades out the selected channel's voice (10 ms). It also stops a sample audition when the pattern is not running.
+
+A loaded file is stored inside the project JSON as base64, so **SAVE** / **LOAD** carries it (`song.userSamples`, each with `id`, `name`, `mime`, `data`, `role`, `fallback`). A project with two or three long samples can be several MB. `cell.sample` stays a number, so the pattern, the hat mute group, and the sampler sliders all work unchanged. **PRESET** and **COMPOSE** replace the whole song, so loaded samples go with it.
+
+## Euclidean sequencer
+
+The **GCD-8 EUCLID** strip is the base-pattern section of `gcd8.seq` for the selected drum channel. **GENERATE** writes the cycle onto the channel's rows.
+
+| field | range | meaning                                                                      |
+|-------|-------|------------------------------------------------------------------------------|
+| LEN   | 1–32  | steps in the cycle                                                           |
+| HITS  | 0–LEN | steps that are hits                                                          |
+| SHIFT | 0–LEN-1 | rotates the cycle forward. A larger value wraps                            |
+| RATE  | 1/16, 1/8, 1/4, 1/2 | rows per step: 1, 2, 4, 8 (a row is a sixteenth)                 |
+
+The preview line shows the hits for the whole pattern. The cycle restarts at row 0 and repeats until the pattern ends, so with LEN 5 on a 16-row pattern the last repeat is cut short. Hits take the note, sample, and volume of the channel's first existing hit, or the role default (`C-4`, `C-1` for bass, volume 40 for hats, 64 otherwise). Rows without a hit lose note, sample, and volume. `effect` and `param` stay, so FX automation survives a rewrite. On a channel assigned to FM, GENERATE rewrites its notes and removes any `===` cells.
+
+Settings are stored in `song.channelEuclid` and round-trip through **SAVE** / **LOAD**. A song without it uses LEN 16, HITS 4, SHIFT 0, RATE 1/16.
+
+Differences from `gcd8.seq`: gcd8 free-runs the sequencer on the clock and per-track step rates. The tracker renders onto a fixed pattern, and a hit is `(i * hits) mod length < hits`, the floor form of the Euclidean distribution. It matches the Bjorklund pattern for common cases such as E(4,16), E(3,8), and E(5,8), but may be a rotation of what `[else/euclid]` produces for other inputs. Jitter, accents, and the euclidean panner are not ported.
+
+```
+node scripts/verify-euclid.mjs
+```
+
+## Licence
+
+This project now includes logic adapted from [glima31/gcd8-pd](https://github.com/glima31/gcd8-pd) (the sampler's velocity response and the euclidean base pattern), which is GPL-3.0. The project is therefore distributed under GPL-3.0-or-later. See `LICENSE` and `NOTICE.md`. The drum WAVs are third-party audio and are not covered by it.
+
 ## FM voice
 
 `FMVoice` is a second implementation of the same three calls. It is a
